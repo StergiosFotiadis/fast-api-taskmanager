@@ -84,6 +84,19 @@ def update_task(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/completed", status_code=status.HTTP_200_OK)
+def delete_completed_tasks(
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    deleted = db.query(Tasks).filter(
+        Tasks.user_id == current_user.id,
+        Tasks.is_completed == True
+    ).delete(synchronize_session=False)
+    db.commit()
+    return {"deleted": deleted}
+
+
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_task(
     task_id: str,
