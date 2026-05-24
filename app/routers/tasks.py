@@ -38,6 +38,23 @@ def get_all_tasks(
     return db.query(Tasks).filter(Tasks.user_id == current_user.id).all()
 
 
+@router.get("/{task_id}", response_model=TaskResponse, status_code=status.HTTP_200_OK)
+def get_task(
+    task_id: str,
+    db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    db_task = db.query(Tasks).filter(
+        Tasks.id == task_id,
+        Tasks.user_id == current_user.id
+    ).first()
+
+    if not db_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return db_task
+
+
 @router.patch("/{task_id}", response_model=TaskResponse, status_code=status.HTTP_200_OK)
 def update_task(
     task_id: str,
