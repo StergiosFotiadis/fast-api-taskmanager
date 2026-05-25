@@ -1,0 +1,71 @@
+name: Security Scan
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Call SecureScan API
+        env:
+          SCAN_API_KEY: ${{ secrets.SCAN_API_KEY }}
+          SCAN_URL: ${{ vars.SCAN_URL }}
+        run: |
+          HTTP_CODE=$(curl -s \
+            -X POST "${SCAN_URL}/api/scan/pr" \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: ${SCAN_API_KEY}" \
+            -d "{\"repo\":\"${{ github.repository }}\",\"pr_number\":${{ github.event.pull_request.number }}}" \
+            -o scan_result.json \
+            --max-time 120 \
+            -w "%{http_code}")
+
+          echo "HTTP status: $HTTP_CODE"
+          cat scan_result.json
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::SecureScan returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          STATUS=$(jq -r '.status' scan_result.json)
+          if [ "$STATUS" = "failed" ]; then
+            ERROR=$(jq -r '.error // "unknown error"' scan_result.json)
+            echo "::error::SecureScan failed: $ERROR"
+            exit 1
+          fi
+
+      - name: Build comment
+        run: |
+          COUNT=$(jq '.findings | length' scan_result.json)
+
+          {
+            echo "## 🔒 SecureScan Security Review"
+            echo ""
+            if [ "$COUNT" = "0" ]; then
+              echo "✅ No security issues found in this PR."
+            else
+              echo "⚠️ Found **${COUNT}** security issue(s):"
+              echo ""
+              echo "| Severity | File | Line | Issue | Suggestion |"
+              echo "|----------|------|------|-------|------------|"
+              jq -r '.findings[] | "| \(.severity | ascii_upcase) | `\(.file)` | \(.line // "?") | \(.issue) | \(.suggestion // "—") |"' scan_result.json
+            fi
+            echo ""
+            echo "<sub>Powered by SecureScan · Run by GitHub Actions</sub>"
+          } > comment.md
+
+          echo "--- Comment preview ---"
+          cat comment.md
+
+      - name: Post sticky comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: securescan
+          path: comment.md
